@@ -5,6 +5,7 @@ this module.
 """
 import sqlite3
 from datetime import datetime
+import mysql.connector
 
 
 connection = None
@@ -14,7 +15,13 @@ def initialize():
     Initializes the connection to the storage backend. Call this before using 
     any other function in this module."""
     global connection
-    connection = sqlite3.connect("resources/default_db.db")
+    connection = mysql.connector.connect(
+        host="mdaepp.internet-box.ch",
+        port=57602,
+        user="dungeonplayer",
+        password="GBSL_EF-info_26",
+        database="dungeon_game"
+    )
 
 def finalize():
     """
@@ -31,18 +38,18 @@ def store_new_room(name, tilemap):
     """  
     cur = connection.cursor()
     # wir verwenden im Moment immer den Tile Atlas mit der ID 1 und die Grösse 15x15    
-    QUERY = "INSERT INTO Rooms (name, atlas_id, size_x, size_y) VALUES (?, ?, ?, ?)"        
+    QUERY = "INSERT INTO Rooms (name, atlas_id, size_x, size_y) VALUES (%s, %s, %s, %s)"        
     cur.execute(QUERY, [name, 1, 15, 15])
     room_id = cur.lastrowid
     
-    QUERY = "INSERT INTO TileMap (tileid, tileindex, roomid) VALUES (?, ?, ?)"
+    QUERY = "INSERT INTO TileMap (tileid, tileindex, roomid) VALUES (%s, %s, %s)"
     for index, tileid in enumerate(tilemap.tilemap):
         if tileid is None:
             # Wir speichern keine leeren Felder ab
             continue
         cur.execute(QUERY, [tileid, index, room_id])
 
-    QUERY = "INSERT INTO ObjectMap (objectid, objectindex, roomid) VALUES (?, ?, ?)"
+    QUERY = "INSERT INTO ObjectMap (objectid, objectindex, roomid) VALUES (%s, %s, %s)"
     for index, objectid in enumerate(tilemap.objectmap):
         if objectid is None:
             continue
@@ -57,17 +64,17 @@ def store_room(roomid, tilemap):
     """
     Store the tilemap data for an existing room
     """
-    QUERY = "DELETE FROM TileMap WHERE roomid = ?"
+    QUERY = "DELETE FROM TileMap WHERE roomid = %s"
     cur = connection.cursor()
     cur.execute(QUERY, [roomid])
-    QUERY = "INSERT INTO TileMap (tileid, tileindex, roomid) VALUES (?, ?, ?)"
+    QUERY = "INSERT INTO TileMap (tileid, tileindex, roomid) VALUES (%s, %s, %s)"
     for index, tileid in enumerate(tilemap.tilemap):
         if tileid is None:
             # we only save non-empty tiles
             continue
         cur.execute(QUERY, [tileid, index, roomid])
     
-    QUERY = "INSERT INTO ObjectMap (objectid, objectindex, roomid) VALUES (?, ?, ?)"
+    QUERY = "INSERT INTO ObjectMap (objectid, objectindex, roomid) VALUES (%s, %s, %s)"
     for index, objectid in enumerate(tilemap.objectmap):
         if objectid is None:
             continue
@@ -82,7 +89,7 @@ def load_tilemap_data(roomid) -> list:
     with None for empty tiles.
     """
     cur = connection.cursor()
-    QUERY = "SELECT tileid, tileindex FROM TileMap WHERE roomid = ?"
+    QUERY = "SELECT tileid, tileindex FROM TileMap WHERE roomid = %s"
     cur.execute(QUERY, (roomid,))
     row = cur.fetchone()
     room_size = get_room_size(roomid)
@@ -94,7 +101,7 @@ def load_tilemap_data(roomid) -> list:
         tiles[row[1]] = row[0]
         row = cur.fetchone()
 
-    QUERY = "SELECT objectid, objectindex FROM ObjectMap WHERE roomid = ?"
+    QUERY = "SELECT objectid, objectindex FROM ObjectMap WHERE roomid = %s"
     cur.execute(QUERY, (roomid,))
     row = cur.fetchone()
 
@@ -111,7 +118,7 @@ def get_room_size(roomid) -> tuple:
     Get the size of a room. Returns a (size_x, size_y) tuple
     """
     cur = connection.cursor()
-    QUERY = "SELECT size_x, size_y FROM Rooms WHERE id = ?"
+    QUERY = "SELECT size_x, size_y FROM Rooms WHERE id = %s"
     cur.execute(QUERY, (roomid,))
     row = cur.fetchone()
     if row:
@@ -126,7 +133,7 @@ def get_room_connections(roomid) -> list:
     to other rooms from the given room.
     """
     cur = connection.cursor()
-    QUERY = "SELECT tileid, targetroomid, targettileid FROM room_connections WHERE roomid = ?"
+    QUERY = "SELECT tileid, targetroomid, targettileid FROM room_connections WHERE roomid = %s"
     cur.execute(QUERY, (roomid,))
     rows = cur.fetchall()
     if rows:
@@ -165,7 +172,7 @@ def add_object_to_room(roomid, tileid, objectid):
 
 def get_objects_at(roomid):
     cur = connection.cursor()
-    QUERY = "SELECT objectid, objectindex FROM ObjectMap WHERE roomid = ?"
+    QUERY = "SELECT objectid, objectindex FROM ObjectMap WHERE roomid = %s"
     cur.execute(QUERY, (roomid,))
     rows = cur.fetchall()
     if rows:
@@ -183,7 +190,7 @@ def remove_object_from_room(roomid, tileid):
         'objectindex': tileid,
         'roomid': roomid
         }
-    cur.execute("DELETE FROM ObjectMap WHERE objectindex = :objectindex AND roomid = roomid ", parameters)    
+    cur.execute("DELETE FROM ObjectMap WHERE objectindex = :objectindex AND roomid = :roomid ", parameters)    
     connection.commit()
 
 
@@ -196,7 +203,7 @@ def get_tile_object_ids() -> list:
     """
     cur = connection.cursor()
     TILE_ATLAS = 1
-    QUERY = "SELECT tile_id FROM TileInfo WHERE atlas_id = ? AND property = 'object'"
+    QUERY = "SELECT tile_id FROM TileInfo WHERE atlas_id = %s AND property = 'object'"
 
     cur.execute(QUERY, (TILE_ATLAS,))
     rows = cur.fetchall()
@@ -211,7 +218,7 @@ def get_walkable_tile_ids() -> list:
     """
 
     cur = connection.cursor()
-    QUERY = "SELECT tile_id FROM TileInfo WHERE atlas_id = ? AND property = ?"
+    QUERY = "SELECT tile_id FROM TileInfo WHERE atlas_id = %s AND property = %s"
     cur.execute(QUERY, (1, "walkable",))
     row = cur.fetchone()
     tileids = []
@@ -237,7 +244,7 @@ def get_player_info(playerid) -> dict:
     Returns a dictionary with player information for the given player ID.
     """
     cur = connection.cursor()
-    result = cur.execute("SELECT player_id, name, room_id titel, position, object_id, last_seen FROM players")
+    result = cur.execute("SELECT player_id, name, room_id, position, object_id, last_seen FROM players")
 
     row = result.fetchone()
     return {
@@ -259,7 +266,7 @@ def register_player(playername, skin) -> int:
     Note: The name of the player can not be used twice. If used
     used twice, it will just use the already existing one.
     """
-    QUERY = "SELECT player_id FROM players WHERE name = ?"
+    QUERY = "SELECT player_id FROM players WHERE name = %s"
     cur = connection.cursor()
     cur.execute(QUERY, (playername,))
     row = cur.fetchone()
@@ -269,7 +276,7 @@ def register_player(playername, skin) -> int:
         room_id = 2
         position = 99
         last_seen = datetime.now().strftime("%Y-%m-%d %H:%M:%S") #Mit hilfe von ChatGPT
-        QUERY = "INSERT INTO players (name, room_id, position, object_id, last_seen) VALUES (?, ?, ?, ?, ?)"
+        QUERY = "INSERT INTO players (name, room_id, position, object_id, last_seen) VALUES (%s, %s, %s, %s, %s)"
         cur = connection.cursor()
         cur.execute(QUERY, [playername, room_id, position, skin, last_seen])
         connection.commit()
@@ -283,7 +290,7 @@ def get_player_location(playerid) -> tuple:
     Returns the current location of the given player as (roomid, tileid)
     """
     cur = connection.cursor()
-    QUERY = "SELECT room_id, position FROM players WHERE player_id = ?"
+    QUERY = "SELECT room_id, position FROM players WHERE player_id = %s"
     cur.execute(QUERY, (playerid,))
     row = cur.fetchone()    
     if row:
@@ -297,14 +304,14 @@ def set_player_location(playerid, roomid, tileid):
     Sets the current location of the given player.
     """
     cur = connection.cursor()
-    QUERY = "UPDATE players SET room_id=?, position=? WHERE player_id = ?"
+    QUERY = "UPDATE players SET room_id=%s, position=%s WHERE player_id = %s"
     cur.execute(QUERY, (roomid, tileid, playerid))
     connection.commit()
 
 
 def get_players_at(roomid):
     cur = connection.cursor()
-    QUERY = "SELECT player_id, position FROM players WHERE room_id = ?"
+    QUERY = "SELECT player_id, position FROM players WHERE room_id = %s"
     cur.execute(QUERY, (roomid,))
     rows = cur.fetchall()
     if rows:
@@ -320,7 +327,7 @@ def get_player_inventory_objects(playerid) -> list:
     times.
     """
     cur = connection.cursor()
-    QUERY = "SELECT objectid FROM Inventory WHERE playerid = ?"
+    QUERY = "SELECT objectid FROM Inventory WHERE playerid = %s"
     cur.execute(QUERY, (playerid,))
     rows = cur.fetchall()
     return [row[0] for row in rows]
@@ -332,7 +339,7 @@ def add_object_to_player_inventory(playerid, objectid):
     Adds the given object ID to the inventory of the given player.
     """
     cur = connection.cursor()
-    QUERY = "INSERT INTO inventory (playerid, objectid) VALUES (?, ?)"
+    QUERY = "INSERT INTO inventory (playerid, objectid) VALUES (%s, %s)"
     cur.execute(QUERY, (playerid, objectid,))
     connection.commit()
 
@@ -343,6 +350,6 @@ def remove_object_from_player_inventory(playerid, objectid):
     of the given player.
     """
     cur = connection.cursor()
-    QUERY = """DELETE FROM inventory WHERE rowid = (SELECT rowid FROM inventory WHERE playerid = ? AND objectid = ? LIMIT 1)"""
+    QUERY = "DELETE FROM inventory WHERE rowid = (SELECT rowid FROM inventory WHERE playerid = %s AND objectid = %s LIMIT 1)"
     cur.execute(QUERY, (playerid, objectid,))
     connection.commit()
